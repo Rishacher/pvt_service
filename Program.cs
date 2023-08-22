@@ -1,4 +1,5 @@
 using Abstractions;
+using Microsoft.AspNetCore.Mvc;
 using pvt_service.Services;
 
 namespace pvt_service
@@ -29,8 +30,9 @@ namespace pvt_service
 
             app.UseAuthorization();
 
+            // app.MapPost("/calculator", ([FromBody] PvtParams pvtParams, IPvtCalculationService pvtCalculationService) => pvtCalculationService.CalculateMixProperties(pvtParams));
             app.MapControllers();
-
+            
             app.UseCors((options) => { options.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod(); });
             
             app.Run();

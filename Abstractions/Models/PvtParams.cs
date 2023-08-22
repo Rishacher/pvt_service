@@ -6,12 +6,12 @@ namespace Abstractions
     public class PvtParams
     {
         /// <summary>
-        /// Давление.
+        /// Давление, Бар.
         /// </summary>
         public double P { get; set; }
         
         /// <summary>
-        /// Температора.
+        /// Температора, К.
         /// </summary>
         public double T { get; set; }
         
