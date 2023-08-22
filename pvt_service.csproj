@@ -14,4 +14,14 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.2.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Services\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <_ContentIncludedByDefault Remove="Implementations\obj\Implementations.csproj.nuget.dgspec.json" />
+    <_ContentIncludedByDefault Remove="Implementations\obj\project.assets.json" />
+    <_ContentIncludedByDefault Remove="Implementations\obj\project.packagespec.json" />
+  </ItemGroup>
+
 </Project>

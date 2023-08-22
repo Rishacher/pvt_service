@@ -5,6 +5,10 @@ VisualStudioVersion = 17.2.32505.173
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "pvt_service", "pvt_service.csproj", "{2107B51A-96A8-426D-B008-CBC04ECCF130}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Abstractions", "Abstractions\Abstractions.csproj", "{DB477A14-D013-41FF-8CFD-7C7036FBBD02}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Implementations", "Implementations\Implementations.csproj", "{D0646E7D-2854-454B-9A07-694410C8090F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +19,14 @@ Global
 		{2107B51A-96A8-426D-B008-CBC04ECCF130}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2107B51A-96A8-426D-B008-CBC04ECCF130}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2107B51A-96A8-426D-B008-CBC04ECCF130}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DB477A14-D013-41FF-8CFD-7C7036FBBD02}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DB477A14-D013-41FF-8CFD-7C7036FBBD02}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DB477A14-D013-41FF-8CFD-7C7036FBBD02}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DB477A14-D013-41FF-8CFD-7C7036FBBD02}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D0646E7D-2854-454B-9A07-694410C8090F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D0646E7D-2854-454B-9A07-694410C8090F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D0646E7D-2854-454B-9A07-694410C8090F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D0646E7D-2854-454B-9A07-694410C8090F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
