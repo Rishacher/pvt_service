@@ -1,0 +1,8 @@
+version: '4'
+
+services:
+  tvp:
+    build:
+      dockerfile: ./docker/Dockerfile
+    ports:
+      - "8001:80"

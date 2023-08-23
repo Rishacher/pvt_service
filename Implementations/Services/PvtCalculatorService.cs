@@ -1,226 +1,230 @@
-﻿using System.Security.Cryptography.Xml;
-using Abstractions;
+﻿using Abstractions;
 
-namespace pvt_service.Services;
+namespace PvtService.Services;
 
-public class PvtCalculatorService : IPvtCalculationService
+public class PvtCalculationService : IPvtCalculationService
 {
-    private const double c1 = 1.9243101395421235 * 1e-6;
-    private const double c2 = 1.2048192771084338;
-    private const double c3 = 1.2254503;
-    private const double c4 = 0.001638;
-    private const double c5 = 1.76875;
-    private const double c6 = 5.6145833333333333;
-    private const double c7 = 574.5875;
-    private const double c8 = 24.04220577350111;
+    double C1 = 1.9243101395421235 * 1e-6;
+    double C2 = 1.2048192771084338;
+    double C3 = 1.2254503;
+    double C4 = 0.001638;
+    double C5 = 1.76875;
+
+    double KtoF(double temp_K)
+    {
+        double temp_F = (temp_K - 273.15) * 9 / 5 + 32;
+        return temp_F;
+    }
+
+    double MMtoFB(double MM)
+    {
+        double FB = MM / 0.17810760667903522;
+        return FB;
+    }
+
+    double PascaltoPSI(double pres)
+    {
+        double pressPSI = pres * 1.45 / 1e4;
+        return pressPSI;
+    }
+
 
     public MixProperties CalculateMixProperties(PvtParams pvtParams)
     {
-        // Расчет газосодержания.
-        var rs = GetGasSaturation(pvtParams);
+        double rho_wat = 1000;
+        double mu_wat = 1;
+        double r_s = _calc_r_s(pvtParams.GammaGas, pvtParams.P, pvtParams.T, pvtParams.GammaOil);
 
-        // Плотность, объем, вязкость нефти.
-        var (rhoOil, vOil, muLive) = pvtParams.Rp < rs
-            ? GetNotSaturatedOil(pvtParams)
-            : GetSaturatedOil(pvtParams);
-
-        // Объемный коэффициент газа.
-        var bg = 350.958 * pvtParams.T / pvtParams.P;
-
-        // Плотность газа;
-        var rhoGas = 28.97 * pvtParams.GammaGas / (c8 * bg);
-
-        // Вязкость газа.
-        var b = 2.57 + 1914.5 / 1.8 * pvtParams.T + 0.275 * pvtParams.GammaGas;
-        var muGas = 1e-4 * (7.77 + 0.183 * pvtParams.GammaGas)
-                         * (Math.Pow(1.8 * pvtParams.T, 1.5)
-                             / 122.4 + 373.6 * pvtParams.GammaGas + 1.8 * pvtParams.T
-                         )
-                         * Math.Exp(b * Math.Pow(rhoGas / 1000, 1.11 + 0.04 * b));
-
-        // Объем газа.
-        double vGas = 0;
-        if (pvtParams.Rp < rs)
+        double rho_oil, v_oil, mu_oil, b_oil;
+        if (pvtParams.Rp < r_s)
         {
-            vGas = 0;
+            (rho_oil, v_oil, mu_oil, b_oil) = _calc_unsaturated(pvtParams.Rp, pvtParams.T, pvtParams.GammaOil,
+                pvtParams.GammaGas, pvtParams.P, pvtParams.QLiq, pvtParams.Wct);
+        }
+        else
+            (rho_oil, v_oil, mu_oil, b_oil) = _calc_saturated(r_s, pvtParams.GammaGas, pvtParams.GammaOil, pvtParams.T,
+                pvtParams.QLiq, pvtParams.Wct);
+
+
+        double b_g = _calc_b_g(pvtParams.T, pvtParams.P);
+
+        double rho_gas = 28.97 * pvtParams.GammaGas / (24.0422057735011 * b_g);
+        double scaled_temp = 1.8 * pvtParams.T;
+        double b = 2.57 + 1914.5 / scaled_temp + 0.275 * pvtParams.GammaGas;
+        double mu_gas = 1e-4 * (7.77 + 0.183 * pvtParams.GammaGas) *
+                        Math.Pow(scaled_temp, 1.5)
+                        / (122.4 + 373.6 * pvtParams.GammaGas + scaled_temp)
+                        * Math.Exp(b * Math.Pow(rho_gas / 1e3, 1.11 + 0.04 * b));
+
+        double v_oil_cons = pvtParams.QLiq * (1 - pvtParams.Wct);
+
+        double v_gas = pvtParams.Rp < r_s ? 0 : b_g * v_oil_cons * (pvtParams.Rp - r_s);
+        double v_wat = pvtParams.QLiq * pvtParams.Wct;
+
+        double wct_context = v_wat / (v_oil + v_wat);
+        double rho_liq = lerp(rho_wat, rho_oil, wct_context);
+        double mu_liq = lerp(mu_wat, mu_oil, wct_context);
+        double v_liq = v_oil + v_wat;
+
+        double gas_fraction = v_gas / (v_liq + v_gas);
+        double rho_mix = lerp(rho_gas, rho_liq, gas_fraction);
+        double mu_mix = lerp(mu_gas, mu_liq, gas_fraction);
+        double v_mix = v_liq + v_gas;
+
+        return new MixProperties { MuMix = mu_mix, QMix = v_mix / 3600 / 24, RhoMix = rho_mix };
+    }
+
+    (double, double, double, double) _calc_saturated(double r_s, double gamma_gas, double gamma_oil, double temp,
+        double q_liq, double wct)
+    {
+        double b_oil = _calc_b_bpp(r_s, gamma_gas, gamma_oil, temp); //check bpp
+
+        double rho_oil = _calc_rho_oil(gamma_oil, r_s, gamma_gas, b_oil);
+        double v_oil_cons = q_liq * (1 - wct); //# v
+        double v_oil = v_oil_cons * b_oil;
+
+        double gamma_oil_api = _calc_gamma_oil_api(gamma_oil);
+        //# 295F
+        if (KtoF(temp) <= 295 && gamma_oil_api <= 58)
+        {
+            double mu_live = _calc_mu_live(temp, gamma_oil, r_s);
+            return (rho_oil, v_oil, mu_live, b_oil);
         }
         else
         {
-            var vOilLiq = pvtParams.QLiq * (1 - pvtParams.Wct );
-            vGas = bg * vOilLiq * (pvtParams.Rp - rs);
+            return (0, 0, 0, 0);
         }
-
-        // Обводненность.
-        var vWat = pvtParams.QLiq * pvtParams.Wct ;
-        var WCT = vWat / (vOil + vWat);
-
-        // Плотность жидкости.
-        var rhoWat = 1000;
-        var rhoLiq = rhoOil * (1 - WCT) + rhoWat * WCT;
-
-        // Вязкость жидкости.
-        var muWat = 1;
-        var muLiq = muLive / 1000 * (1 - WCT) + muWat / 1000 * WCT;
-
-        // Объем жидкости.
-        var vLiq = vOil + vWat;
-
-        // Газовая фракцию.
-        var GF = vGas / (vLiq + vGas);
-
-        // Плотность смеси.
-        var rhoMix = rhoLiq * (1 - GF) + rhoGas * GF;
-
-        // Вязкость смеси.
-        var muMix = muLiq * (1 - GF) + muGas / 1000 * GF;
-
-        // Расход смеси.
-        var vMix = vLiq + vGas;
-
-        return new MixProperties
-        {
-            QMix = vMix,
-            RhoMix = rhoMix,
-            MuMix = muMix,
-        };
     }
 
-    private double TransformCelsiusToFahrenheit(double c) =>
-        1.8 * (c - 273.15) + 32;
-
-    private double TranslatePascalToPsi(double pascal) =>
-        1.4504 * 1e-4 * pascal;
-
-    private double TransformGammaOilToDegrees(double gammaOil) =>
-        141.5 / gammaOil - 131.5;
-
-    private double TransformGasToCB(double gas) =>
-        gas / 0.17810760667903522;
-
-    private double GetPower(PvtParams pvtParams) =>
-        c3 + c4 * pvtParams.T - c5 / pvtParams.GammaOil;
-
-    private double GetGasSaturation(PvtParams pvtParams) =>
-        pvtParams.GammaGas
-        * Math.Pow(
-            c1 * pvtParams.P
-            / Math.Pow(10, GetPower(pvtParams)), c2
+    (double, double, double, double) _calc_unsaturated(double gor, double temp, double gamma_oil, double gamma_gas,
+        double pressure, double q_liq, double wct)
+    {
+        double r_sb = gor;
+        double y_g = _calc_y_g(temp, gamma_oil);
+        double p_bp_pa = (
+            Math.Pow(10, y_g)
+            / (1.9243101395421235 * 1e-6)
+            * Math.Pow((r_sb / gamma_gas), (1 / 1.2048192771084338))
         );
+        double b_bpp = _calc_b_bpp(r_sb, gamma_gas, gamma_oil, temp);
+        double gamma_oil_api = _calc_gamma_oil_api(gamma_oil);
+        double temp_F = KtoF(temp);
+        double A = (
+            -1.433
+            + 5 * r_sb
+            + 17.2 * temp_F
+            - 1.180 * gamma_gas
+            + 12.61 * gamma_oil_api
+        ) / 1e+5;
+        double p_bp = PascaltoPSI(p_bp_pa);
+        double C = (A / p_bp);
+        double pres_PSI = PascaltoPSI(pressure);
+        double b_oil = b_bpp * Math.Exp(C * (p_bp - pres_PSI));
 
-    private (double, double, double) GetSaturatedOil(PvtParams pvtParams)
-    {
-        var tk = pvtParams.T;
-        var tf = TransformCelsiusToFahrenheit(pvtParams.T);
-        var p = pvtParams.P;
-        var oilApi = TransformGammaOilToDegrees(pvtParams.GammaOil);
+        double rho_oil = _calc_rho_oil(gamma_oil, gor, gamma_gas, b_oil);
+        double v_oil_cons = q_liq * (1 - wct); //  # v
+        double v_oil = v_oil_cons * b_oil;
 
-        // Газосодержание.
-        var rs = pvtParams.GammaGas * Math.Pow(c1 * p / Math.Pow(10, GetPower(pvtParams)), c2);
-
-        // Объемный коэффициент нефти в точке давления насыщения нефти. 
-        var boil = 0.972 + 147 / 1e6
-            * Math.Pow(c6 * rs * Math.Pow(pvtParams.GammaGas / pvtParams.GammaOil, 0.5) + 2.25 * tk - c7, 1.175);
-
-        // Плотность нефти в рассматриваемых условиях.
-        var rhoOil = (1000 * pvtParams.GammaOil + 1.2217 * rs * pvtParams.GammaGas) / boil;
-
-        // Объем нефти в заданных условиях.
-        var voilLiq = pvtParams.QLiq * (1 - pvtParams.Wct );
-        var voil = voilLiq * boil;
-
-        double muDead = 0;
-        if (tf <= 295 && oilApi <= 58)
+        if (KtoF(temp) <= 295 && gamma_oil_api <= 58)
         {
-            if (tf > 70)
-            {
-                var d = Math.Pow(tf, -1.163) * Math.Pow(10, 3.0324 - 0.02023 * oilApi);
+            double mu_live = _calc_mu_live(temp, gamma_oil, gor);
 
-                muDead = Math.Pow(10, d) - 1;
-            }
-            else
-            {
-                var d70 = Math.Pow(70, -1.163) * Math.Pow(10, 3.0324 - 0.02023 * oilApi);
-                var muOil70 = Math.Pow(10, d70) - 1;
-
-                var d80 = Math.Pow(80, -1.163) * Math.Pow(10, 3.0324 - 0.02023 * oilApi);
-                var muOil80 = Math.Pow(10, d80) - 1;
-
-                var lmu = Math.Log10(muOil70 / muOil80);
-                var l78 = Math.Log10((double)8 / 7);
-
-                var c = lmu / l78;
-                var b = Math.Pow(70, c) * muOil70;
-                var d = Math.Log10(b) - c * Math.Log10(tf);
-                muDead = Math.Pow(10, d);
-            }
+            return (rho_oil, v_oil, mu_live, b_oil);
         }
-
-        // Вязкость насыщенной нефти.
-        var muLive = 10.715 * Math.Pow(TransformGasToCB(rs) + 100, -0.515) *
-                     Math.Pow(muDead, 5.44 * Math.Pow(TransformGasToCB(rs) + 150, -0.338));
-        return (rhoOil, voil, muLive);
+        else
+        {
+            return (0, 0, 0, 0);
+        }
     }
 
-    private (double, double, double) GetNotSaturatedOil(PvtParams pvtParams)
+    double _calc_gamma_oil_api(double gamma_oil)
     {
-        var tk = pvtParams.T;
-        var tf = TransformCelsiusToFahrenheit(tk);
-        var p = pvtParams.P;
-        var oilApi = TransformGammaOilToDegrees(pvtParams.GammaOil);
+        return (141.5 / gamma_oil) - 131.5;
+    }
 
-        // Газосодержание.
-        var rsb = pvtParams.Rp;
+    double _calc_D(double temp, double gamma_oil)
+    {
+        return (Math.Pow(temp, -1.163)) * Math.Pow(10, (3.0324 - 0.02023 * _calc_gamma_oil_api(gamma_oil)));
+    }
 
-        // Давление насыщения.
-        var pbp = Math.Pow(10, GetPower(pvtParams)) / c1 * Math.Pow(rsb / pvtParams.GammaGas, 1 / c2);
+    double _calc_y_g(double temp, double gamma_oil)
+    {
+        return C3 + C4 * temp - C5 / gamma_oil;
+    }
 
-        // Объемный коэффициент нефти в точке давления насыщения нефти. 
-        var bbpp = 0.972 + 147 / 1e6
-            * Math.Pow(c6 * rsb * Math.Pow(pvtParams.GammaGas / pvtParams.GammaOil, 0.5) + 2.25 * tk - c7, 1.175);
+    double _calc_b_bpp(double gas_sat, double gamma_gas, double gamma_oil, double temp)
+    {
+        return (
+            0.972
+            + 147e-6
+            * Math.Pow((
+                    5053125 / 900000 * gas_sat * Math.Sqrt(gamma_gas / gamma_oil)
+                    + 2.25 * temp
+                    - 574.5875
+                )
+                , 1.175)
+        );
+    }
 
-        // Объемный коэффициент при заданном давлении.
-        var a = (-1.433 / 1e5) + (5 / 1e5) * rsb + (17.2 / 1e5) * tf +
-                (-1.180 / 1e5) * pvtParams.GammaGas + (12.61 / 1e5) * oilApi;
-        var boil = bbpp * Math.Exp((a / TranslatePascalToPsi(pbp)) * (TranslatePascalToPsi(pbp) - TranslatePascalToPsi(p)));
+    double _calc_rho_oil(double gamma_oil, double gas_sat, double gamma_gas, double b_oil)
+    {
+        return 1e3 * ((gamma_oil + 1.2217e-3 * gas_sat * gamma_gas) / b_oil);
+    }
 
-        // Плотность нефти в рассматриваемых условиях.
-        var rhoOil = (1000 * pvtParams.GammaOil + 1.2217 * rsb * pvtParams.GammaGas) / boil;
-
-        // Объем ненеасыщенной нефти.
-        var voilLiq = pvtParams.QLiq * (1 - pvtParams.Wct );
-        var voil = voilLiq * boil;
-
-        // Вязкость дегазированной нефти.
-        double muDead = 0;
-        if (tf <= 295 && oilApi <= 58)
+    double _calc_mu_live(double temp, double gamma_oil, double gas_sat)
+    {
+        //# 70F
+        double temp_F = KtoF(temp);
+        double mu_dead;
+        if (temp_F > 70)
         {
-            if (tf > 70)
-            {
-                var d = Math.Pow(tf, -1.163) * Math.Pow(10, 3.0324 - 0.02023 * oilApi);
+            double D = _calc_D(temp_F, gamma_oil);
+            mu_dead = Math.Pow(10, D - 1);
+        }
+        else
+        {
+            double D_80 = _calc_D(80, gamma_oil);
+            double D_70 = _calc_D(70, gamma_oil);
 
-                muDead = Math.Pow(10, d) - 1;
-            }
-            else
-            {
-                var d70 = Math.Pow(70, -1.163) * Math.Pow(10, 3.0324 - 0.02023 * oilApi);
-                var muOil70 = Math.Pow(10, d70) - 1;
+            double mu_oil_80 = Math.Pow(10, D_80 - 1);
+            double mu_oil_70 = Math.Pow(10, D_70 - 1);
 
-                var d80 = Math.Pow(80, -1.163) * Math.Pow(10, 3.0324 - 0.02023 * oilApi);
-                var muOil80 = Math.Pow(10, d80) - 1;
+            double L_seven_eighth = Math.Log10(8 / 7);
 
-                var lmu = Math.Log10(muOil70 / muOil80);
-                var l78 = Math.Log10((double)8 / 7);
+            double L_mu = Math.Log10(mu_oil_70 / mu_oil_80);
 
-                var c = lmu / l78;
-                var b = Math.Pow(70, c) * muOil70;
-                var d = Math.Log10(b) - c * Math.Log10(tf);
-                muDead = Math.Pow(10, d);
-            }
+            double c = L_mu / L_seven_eighth;
+
+            double b = Math.Pow(70, c * mu_oil_70);
+
+            double D = Math.Log10(b) - c * Math.Log10(temp_F);
+
+            mu_dead = Math.Pow(10, D);
         }
 
-        // Вязкость насыщенной нефти.
-        var muLive = 10.715 * Math.Pow(TransformGasToCB(rsb) + 100, -0.515) *
-                     Math.Pow(muDead, 5.44 * Math.Pow(rsb + 150, -0.338));
-        return (rhoOil, voil, muLive);
+        double gas_sat_fb = MMtoFB(gas_sat);
+        double mu_live = (
+            10.715
+            * Math.Pow((gas_sat_fb + 100), -0.515)
+            * Math.Pow(mu_dead, (5.44 * Math.Pow((gas_sat_fb + 150), -0.338)))
+        );
+        return mu_live;
+    }
+
+    double _calc_r_s(double gamma_gas, double pressure, double temp, double gamma_oil)
+    {
+        double y_g = _calc_y_g(temp, gamma_oil);
+
+        return gamma_gas * Math.Pow((C1 * pressure / Math.Pow(10, y_g)), C2);
+    }
+
+    double _calc_b_g(double temp, double pressure, double z = 1)
+    {
+        return 359.958 * z * temp / pressure;
+    }
+
+    double lerp(double min, double max, double t)
+    {
+        return max * (1 - t) + min * t;
     }
 }

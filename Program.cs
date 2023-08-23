@@ -1,6 +1,5 @@
 using Abstractions;
-using Microsoft.AspNetCore.Mvc;
-using pvt_service.Services;
+using PvtService.Services;
 
 namespace pvt_service
 {
@@ -40,7 +39,7 @@ namespace pvt_service
 
         private static void RegisterServices(IServiceCollection serviceCollection)
         {
-            serviceCollection.AddSingleton<IPvtCalculationService, PvtCalculatorService>();
+            serviceCollection.AddSingleton<IPvtCalculationService, PvtCalculationService>();
         }
     }
 }
